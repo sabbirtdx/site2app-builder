@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="s2a_theme">#6C5CE7</color>
+    <color name="s2a_status_bar">#6C5CE7</color>
+    <color name="s2a_nav_bar">#FFFFFF</color>
+    <color name="white">#FFFFFF</color>
+    <color name="s2a_splash_bg">#6C5CE7</color>
+    <color name="s2a_nav_item">@color/s2a_theme</color>
+</resources>
