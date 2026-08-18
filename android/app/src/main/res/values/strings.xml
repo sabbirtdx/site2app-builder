@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Site2App</string>
+    <string name="s2a_admob_banner_id"></string>
+    <string name="s2a_admob_interstitial_id"></string>
+    <string name="s2a_admob_rewarded_id"></string>
+</resources>
