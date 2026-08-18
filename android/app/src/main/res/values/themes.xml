@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Site2App" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/s2a_theme</item>
+        <item name="colorPrimaryDark">@color/s2a_status_bar</item>
+        <item name="colorPrimaryVariant">@color/s2a_theme</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorSecondary">@color/s2a_theme</item>
+        <item name="colorAccent">@color/s2a_theme</item>
+        <item name="android:statusBarColor">@color/s2a_status_bar</item>
+        <item name="android:navigationBarColor">@color/s2a_nav_bar</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="bottomNavigationStyle">@style/S2A.BottomNav</item>
+    </style>
+
+    <style name="Theme.Site2App.Splash" parent="Theme.Site2App">
+        <item name="android:windowBackground">@drawable/bg_splash</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <style name="S2A.BottomNav" parent="Widget.MaterialComponents.BottomNavigationView">
+        <item name="itemIconTint">@color/s2a_nav_item</item>
+        <item name="itemTextColor">@color/s2a_nav_item</item>
+        <item name="itemActiveIndicatorStyle">@null</item>
+        <item name="backgroundTint">@color/s2a_nav_bar</item>
+        <item name="elevation">8dp</item>
+    </style>
+
+</resources>
