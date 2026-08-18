@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Replaced at build time by the Site2App project writer -->
+    <string name="s2a_home_url" translatable="false"></string>
+    <string name="s2a_website_url" translatable="false"></string>
+    <integer name="s2a_nav_count" translatable="false">1</integer>
+    <string name="s2a_nav_0_id" translatable="false">home</string>
+    <string name="s2a_nav_0_label">Home</string>
+    <string name="s2a_nav_0_url" translatable="false"></string>
+    <string name="s2a_nav_0_icon" translatable="false">home</string>
+</resources>
