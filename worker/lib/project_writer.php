@@ -401,9 +401,8 @@ class S2AProjectWriter
         if (! is_array($navItems)) {
             $navItems = [];
         }
-        if (empty($navItems)) {
-            $navItems = [['id' => 'home', 'label' => 'Home', 'url' => $c['home_url'] ?? $c['website_url']]];
-        }
+        // No default menu: if the user removed all pages, the app ships
+        // with NO navigation at all (clean full-screen webview).
 
         $settings = $c['settings'] ?? [];
         $permissions = $c['permissions'] ?? [];
