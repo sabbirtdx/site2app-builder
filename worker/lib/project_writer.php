@@ -401,6 +401,7 @@ class S2AProjectWriter
         }
 
         // Nav items
+        $keep = [];
         foreach ($navItems as $i => $item) {
             $id = preg_replace('/[^a-z0-9_]/i', '', (string) ($item['id'] ?? 'item'.$i));
             $label = $item['label'] ?? 'Page';
@@ -410,11 +411,56 @@ class S2AProjectWriter
             $xml .= '    <string name="s2a_nav_'.$i.'_label">'.htmlspecialchars((string) $label, ENT_XML1)."</string>\n";
             $xml .= '    <string name="s2a_nav_'.$i.'_url" translatable="false">'.htmlspecialchars((string) $url, ENT_XML1)."</string>\n";
             $xml .= '    <string name="s2a_nav_'.$i.'_icon" translatable="false">'.htmlspecialchars((string) $icon, ENT_XML1)."</string>\n";
+            $keep[] = '@string/s2a_nav_'.$i.'_id';
+            $keep[] = '@string/s2a_nav_'.$i.'_label';
+            $keep[] = '@string/s2a_nav_'.$i.'_url';
+            $keep[] = '@string/s2a_nav_'.$i.'_icon';
         }
         $xml .= '    <integer name="s2a_nav_count" translatable="false">'.count($navItems)."</integer>\n";
         $xml .= "</resources>\n";
 
         file_put_contents($resDir.'/values/config.xml', $xml);
+
+        // Keep every config resource alive even when R8 resource shrinking is
+        // enabled. These values are read dynamically via
+        // Resources.getIdentifier(), which the shrinker cannot see — without
+        // this list the released app can silently lose its URL/navigation.
+        $keep = array_merge($keep, [
+            '@integer/s2a_nav_count',
+            '@string/s2a_home_url',
+            '@string/s2a_website_url',
+            '@string/s2a_navigation_type',
+            '@string/s2a_pull_to_refresh',
+            '@string/s2a_zoom_enabled',
+            '@string/s2a_file_upload_enabled',
+            '@string/s2a_camera_enabled',
+            '@string/s2a_location_enabled',
+            '@string/s2a_microphone_enabled',
+            '@string/s2a_downloads_enabled',
+            '@string/s2a_external_links_allowed',
+            '@string/s2a_phone_links_enabled',
+            '@string/s2a_whatsapp_links_enabled',
+            '@string/s2a_email_links_enabled',
+            '@string/s2a_share_enabled',
+            '@string/s2a_open_links_external',
+            '@string/s2a_show_back_button',
+            '@string/s2a_show_home_button',
+            '@string/s2a_push_register_url',
+            '@string/app_name',
+            '@string/s2a_admob_banner_id',
+            '@string/s2a_admob_interstitial_id',
+            '@string/s2a_admob_rewarded_id',
+            '@drawable/splash',
+            '@drawable/bg_splash',
+        ]);
+        $rawDir = $resDir.'/raw';
+        if (! is_dir($rawDir)) {
+            mkdir($rawDir, 0775, true);
+        }
+        $keepXml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            ."<resources xmlns:tools=\"http://schemas.android.com/tools\"\n"
+            ."    tools:keep=\"".implode(',', array_unique($keep))."\" />\n";
+        file_put_contents($rawDir.'/keep.xml', $keepXml);
     }
 
     protected static function replaceTokens(string $file, array $tokens): void
