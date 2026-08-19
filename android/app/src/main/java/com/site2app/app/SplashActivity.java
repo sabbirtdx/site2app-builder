@@ -11,6 +11,10 @@ import androidx.appcompat.app.AppCompatActivity;
 
 /**
  * Splash screen shown while the app is starting.
+ *
+ * Shows the uploaded splash image FULL SCREEN (center-cropped). When no
+ * splash image exists, the app logo/icon is shown instead — so the brand
+ * always appears on the splash.
  */
 public class SplashActivity extends AppCompatActivity {
 
@@ -33,7 +37,11 @@ public class SplashActivity extends AppCompatActivity {
         ImageView splashImage = findViewById(R.id.splash_image);
         TextView splashTitle = findViewById(R.id.splash_title);
 
+        // 1) uploaded splash image (full screen), else 2) the app icon/logo.
         int resId = getResources().getIdentifier("splash", "drawable", getPackageName());
+        if (resId == 0) {
+            resId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+        }
         if (resId != 0) {
             splashImage.setImageResource(resId);
         }
