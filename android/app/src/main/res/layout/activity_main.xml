@@ -48,14 +48,7 @@
                 android:progressTint="@color/s2a_theme"
                 android:visibility="gone" />
 
-            <com.google.android.gms.ads.AdView
-                android:id="@+id/ad_view"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:visibility="gone"
-                app:adSize="BANNER"
-                app:adUnitId="@string/s2a_admob_banner_id" />
+            __ADS_VIEW__
         </FrameLayout>
 
         <HorizontalScrollView
