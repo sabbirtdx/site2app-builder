@@ -1,25 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
     android:background="@color/s2a_splash_bg">
 
+    <!-- Full-screen splash image: fills the whole screen, cropped nicely.
+         When the app has no splash image, SplashActivity switches this to
+         the app logo (icon) so the brand always shows. -->
     <ImageView
         android:id="@+id/splash_image"
-        android:layout_width="160dp"
-        android:layout_height="160dp"
-        android:contentDescription="App logo" />
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="App splash" />
 
+    <!-- Soft dark scrim at the bottom so the title stays readable on any image -->
+    <View
+        android:id="@+id/splash_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="150dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_splash_scrim" />
+
+    <!-- App name centered at the bottom, on top of the scrim -->
     <TextView
         android:id="@+id/splash_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="34dp"
         android:text="@string/app_name"
         android:textColor="@android:color/white"
-        android:textSize="22sp"
-        android:textStyle="bold" />
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:shadowColor="#99000000"
+        android:shadowDx="0"
+        android:shadowDy="1.5"
+        android:shadowRadius="6"
+        android:gravity="center" />
 
-</LinearLayout>
+</FrameLayout>
