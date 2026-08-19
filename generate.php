@@ -53,28 +53,84 @@ if (! empty($job['splash_base64'])) {
     file_put_contents($splashPath, base64_decode($job['splash_base64']));
 }
 
-// ---------- Signing keystore ----------
+// ---------- Signing keystore (self-healing) ----------
 $keystorePath = null;
 $keystorePassword = (string) ($job['keystore_password'] ?? '');
 $keystoreAlias = (string) ($job['keystore_alias'] ?? 'site2app');
 $newKeystoreDir = null;
+$needsFresh = true;
+
+// Valid keystores: JKS starts FE ED FE ED, PKCS12 starts 30 82 (DER
+// SEQUENCE). Anything else is corrupted. We GENERATE JKS format so the
+// magic-byte check is stable across JDK versions (JDK 11+ defaults to
+// PKCS12, which confused an earlier validation).
+function s2a_keystore_valid(string $path, string $pass, string $alias): bool
+{
+    $head = (string) @file_get_contents($path, false, null, 0, 4);
+    if (strlen($head) < 4) {
+        return false;
+    }
+    $isJks = $head === "\xFE\xED\xFE\xED";
+    $isP12 = $head[0] === "\x30" && $head[1] === "\x82";
+    if (! $isJks && ! $isP12) {
+        return false;
+    }
+    $cmd = escapeshellarg(s2a_keytool()).' -list -keystore '.escapeshellarg($path)
+        .' -alias '.escapeshellarg($alias)
+        .' -storepass '.escapeshellarg($pass)
+        .' 2>&1';
+    exec($cmd, $out, $rc);
+    return $rc === 0;
+}
+
+function s2a_keytool(): string
+{
+    $candidates = [];
+    $fromPath = trim((string) @shell_exec('command -v keytool 2>/dev/null'));
+    if ($fromPath !== '') {
+        $candidates[] = $fromPath;
+    }
+    $javaHome = getenv('JAVA_HOME');
+    if ($javaHome !== false && $javaHome !== '') {
+        $candidates[] = rtrim($javaHome, '/').'/bin/keytool';
+    }
+    // setup-java action places JDKs here on GitHub runners
+    foreach (glob('/opt/hostedtoolcache/*/*/x64/bin/keytool') ?: [] as $c) {
+        $candidates[] = $c;
+    }
+    foreach ($candidates as $candidate) {
+        if (is_file($candidate) && is_executable($candidate)) {
+            return $candidate;
+        }
+    }
+    return 'keytool'; // last resort: rely on PATH
+}
 
 if (! empty($job['keystore_base64'])) {
-    $keystorePath = $work.'/signing.jks';
-    file_put_contents($keystorePath, base64_decode($job['keystore_base64']));
-    @chmod($keystorePath, 0600);
-} else {
-    // First build: generate a fresh keystore with keytool (Java 17 is
-    // available on the GitHub runner) and expose it for upload.
+    $candidate = $work.'/signing.jks';
+    file_put_contents($candidate, base64_decode($job['keystore_base64']));
+    @chmod($candidate, 0600);
+    if (s2a_keystore_valid($candidate, $keystorePassword, $keystoreAlias)) {
+        $keystorePath = $candidate;
+        $needsFresh = false;
+        echo "Platform keystore validated - reusing\n";
+    } else {
+        echo "Platform keystore is corrupted - generating a fresh one\n";
+        @unlink($candidate);
+    }
+}
+
+if ($needsFresh) {
     $newKeystoreDir = $work.'/newkeystore';
     @mkdir($newKeystoreDir, 0775, true);
     $keystorePath = $newKeystoreDir.'/new.jks';
     $keystorePassword = bin2hex(random_bytes(12));
     $dname = 'CN='.preg_replace('/[^a-zA-Z0-9 ._-]/', '', (string) ($job['app_name'] ?? 'Site2App')).', OU=Site2App, O=Site2App, C=BD';
 
-    $cmd = 'keytool -genkeypair -v'
+    $cmd = escapeshellarg(s2a_keytool()).' -genkeypair -v'
         .' -keystore '.escapeshellarg($keystorePath)
         .' -alias '.escapeshellarg($keystoreAlias)
+        .' -storetype JKS'
         .' -keyalg RSA -keysize 2048 -validity 10000'
         .' -storepass '.escapeshellarg($keystorePassword)
         .' -keypass '.escapeshellarg($keystorePassword)
@@ -88,6 +144,7 @@ if (! empty($job['keystore_base64'])) {
     }
     file_put_contents($newKeystoreDir.'/password.txt', $keystorePassword);
     file_put_contents($newKeystoreDir.'/alias.txt', $keystoreAlias);
+    echo "Fresh keystore generated - will be uploaded to the platform\n";
 }
 
 // ---------- Project ----------
