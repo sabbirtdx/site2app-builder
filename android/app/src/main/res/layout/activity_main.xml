@@ -30,8 +30,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent">
 
-                <WebView
-                    android:id="@+id/webview"
+                <!-- The WebView is created programmatically so a broken System
+                     WebView can never take the whole app down: if it fails,
+                     the app falls back to opening the site in the browser. -->
+                <FrameLayout
+                    android:id="@+id/webview_container"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent" />
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
