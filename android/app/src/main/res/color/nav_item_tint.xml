@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom navigation item tint: theme color when selected, gray when not.
+     Lives in res/color so the project writer (which regenerates values/colors.xml)
+     never breaks the reference. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/s2a_theme" android:state_checked="true" />
+    <item android:color="#8A94A3" />
+</selector>
