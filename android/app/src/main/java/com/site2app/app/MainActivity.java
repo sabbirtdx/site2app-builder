@@ -47,18 +47,17 @@ import androidx.core.content.FileProvider;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import com.google.android.gms.ads.AdRequest;
-import com.google.android.gms.ads.AdSize;
-import com.google.android.gms.ads.AdView;
-import com.google.android.gms.ads.MobileAds;
-import com.google.android.gms.ads.interstitial.InterstitialAd;
-import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.navigation.NavigationView;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -79,7 +78,7 @@ public class MainActivity extends AppCompatActivity {
     private android.widget.HorizontalScrollView topNavScroll;
     private DrawerLayout drawerLayout;
     private NavigationView navView;
-    private AdView adView;
+    private View adView;
 
     private String currentUrl = "";
     private int pagesLoaded = 0;
@@ -87,7 +86,7 @@ public class MainActivity extends AppCompatActivity {
 
     private ValueCallback<Uri[]> filePathCallback;
     private Uri cameraUri;
-    private InterstitialAd interstitialAd;
+    private Object interstitialAd;
     private boolean interstitialShown = false;
     private long lastBackPress = 0;
 
@@ -248,6 +247,15 @@ public class MainActivity extends AppCompatActivity {
         lp.setMargins(0, 12, 0, 0);
         root.addView(tryAgain, lp);
 
+        Button viewLog = new Button(this);
+        viewLog.setText("View crash details");
+        viewLog.setAllCaps(false);
+        viewLog.setOnClickListener(v -> showCrashLog());
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp2.setMargins(0, 12, 0, 0);
+        root.addView(viewLog, lp2);
+
         TextView tip = new TextView(this);
         tip.setText("Tip: update \"Android System WebView\" in the Play Store to fix the in-app browser.");
         tip.setTextSize(12);
@@ -260,6 +268,38 @@ public class MainActivity extends AppCompatActivity {
         setContentView(root);
         // Note: the launch flag is NOT cleared here on purpose — safe mode
         // stays active across launches until the user taps "Try again".
+    }
+
+    private void showCrashLog() {
+        String content = "No crash log found on this device yet.";
+        try {
+            File dir = getExternalFilesDir(null);
+            if (dir == null) {
+                dir = getFilesDir();
+            }
+            File log = new File(dir, "s2a-crash.log");
+            if (log.exists()) {
+                StringBuilder sb = new StringBuilder();
+                try (BufferedReader br = new BufferedReader(new FileReader(log))) {
+                    String line;
+                    int n = 0;
+                    while ((line = br.readLine()) != null && n < 80) {
+                        sb.append(line).append('\n');
+                        n++;
+                    }
+                }
+                content = sb.length() > 0 ? sb.toString() : "(empty log file)";
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Crash details")
+                    .setMessage(content)
+                    .setPositiveButton("OK", null)
+                    .show();
+        } catch (Throwable ignored) {
+        }
     }
 
     private void bindViews() {
@@ -513,8 +553,12 @@ public class MainActivity extends AppCompatActivity {
                 highlightCurrentNav(url);
                 pagesLoaded++;
                 if (interstitialAd != null && !interstitialShown && pagesLoaded >= 2) {
-                    interstitialAd.show(MainActivity.this);
-                    interstitialShown = true;
+                    try {
+                        Class<?> cls = Class.forName("com.google.android.gms.ads.interstitial.InterstitialAd");
+                        cls.getMethod("show", android.app.Activity.class).invoke(interstitialAd, MainActivity.this);
+                        interstitialShown = true;
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         });
@@ -775,27 +819,92 @@ public class MainActivity extends AppCompatActivity {
         // Light touch: only refresh nav state without reloading the page
     }
 
+    /**
+     * AdMob is optional and loaded through REFLECTION. Apps without AdMob
+     * IDs ship without the Google Mobile Ads SDK at all — its startup
+     * ContentProvider was a crash source on several devices. Everything
+     * here degrades silently when the SDK is not bundled.
+     */
+    private boolean adsAvailable() {
+        try {
+            Class.forName("com.google.android.gms.ads.AdView");
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private Object buildAdRequest() {
+        try {
+            Class<?> cls = Class.forName("com.google.android.gms.ads.AdRequest$Builder");
+            Object builder = cls.getConstructor().newInstance();
+            return cls.getMethod("build").invoke(builder);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private void setupAdMob() {
         String bannerId = AppConfig.admobBannerId();
         String interstitialId = AppConfig.admobInterstitialId();
+        boolean ads = adsAvailable();
 
-        if (bannerId == null || bannerId.isEmpty()) {
-            adView.setVisibility(View.GONE);
+        if (adView == null || !ads || bannerId == null || bannerId.isEmpty()) {
+            if (adView != null) {
+                adView.setVisibility(View.GONE);
+            }
         } else {
-            MobileAds.initialize(this);
-            adView.setVisibility(View.VISIBLE);
-            adView.setAdUnitId(bannerId);
-            adView.loadAd(new AdRequest.Builder().build());
+            try {
+                Class<?> clsAdView = Class.forName("com.google.android.gms.ads.AdView");
+                Object av = clsAdView.getConstructor(android.content.Context.class).newInstance(this);
+                clsAdView.getMethod("setAdUnitId", String.class).invoke(av, bannerId);
+                Object req = buildAdRequest();
+                if (req != null) {
+                    clsAdView.getMethod("loadAd", Class.forName("com.google.android.gms.ads.AdRequest")).invoke(av, req);
+                }
+                // Swap the placeholder view for the real AdView.
+                if (av instanceof View && adView.getParent() instanceof ViewGroup) {
+                    ViewGroup parent = (ViewGroup) adView.getParent();
+                    int idx = parent.indexOfChild(adView);
+                    ViewGroup.LayoutParams lp = adView.getLayoutParams();
+                    parent.removeView(adView);
+                    parent.addView((View) av, idx, lp);
+                    adView = (View) av;
+                }
+            } catch (Throwable ignored) {
+            }
         }
 
-        if (interstitialId != null && !interstitialId.isEmpty()) {
-            MobileAds.initialize(this);
-            InterstitialAd.load(this, interstitialId, new AdRequest.Builder().build(), new InterstitialAdLoadCallback() {
-                @Override
-                public void onAdLoaded(@NonNull InterstitialAd ad) {
-                    interstitialAd = ad;
-                }
-            });
+        if (!ads || interstitialId == null || interstitialId.isEmpty()) {
+            return;
+        }
+        try {
+            Class<?> clsMobileAds = Class.forName("com.google.android.gms.ads.MobileAds");
+            clsMobileAds.getMethod("initialize", android.content.Context.class).invoke(null, this);
+            final Class<?> clsCallback = Class.forName("com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback");
+            Object callback = Proxy.newProxyInstance(
+                    clsCallback.getClassLoader(),
+                    new Class<?>[]{clsCallback},
+                    new InvocationHandler() {
+                        @Override
+                        public Object invoke(Object proxy, Method method, Object[] args) {
+                            try {
+                                if ("onAdLoaded".equals(method.getName()) && args != null && args.length > 0) {
+                                    interstitialAd = args[0];
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                            return null;
+                        }
+                    });
+            Class<?> clsInter = Class.forName("com.google.android.gms.ads.interstitial.InterstitialAd");
+            Object req = buildAdRequest();
+            if (req != null) {
+                clsInter.getMethod("load", android.content.Context.class, String.class,
+                        Class.forName("com.google.android.gms.ads.AdRequest"), clsCallback)
+                        .invoke(null, this, interstitialId, req, callback);
+            }
+        } catch (Throwable ignored) {
         }
     }
 
