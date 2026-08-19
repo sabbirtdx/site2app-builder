@@ -20,8 +20,8 @@
     </style>
 
     <style name="S2A.BottomNav" parent="Widget.MaterialComponents.BottomNavigationView">
-        <item name="itemIconTint">@color/s2a_nav_item</item>
-        <item name="itemTextColor">@color/s2a_nav_item</item>
+        <item name="itemIconTint">@color/nav_item_tint</item>
+        <item name="itemTextColor">@color/nav_item_tint</item>
         <item name="itemActiveIndicatorStyle">@null</item>
         <item name="backgroundTint">@color/s2a_nav_bar</item>
         <item name="elevation">8dp</item>
