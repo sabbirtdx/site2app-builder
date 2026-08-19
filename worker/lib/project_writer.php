@@ -287,19 +287,29 @@ class S2AProjectWriter
                 ? "    implementation 'com.google.android.gms:play-services-ads:23.2.0'"
                 : '// Google Mobile Ads SDK not included (no AdMob IDs) — safer startup',
         ]);
-        $adsView = $adsOn
-            ? '            <com.google.android.gms.ads.AdView
+        // The template ALWAYS contains a FrameLayout placeholder with the
+        // id ad_view (so the R class and MainActivity compile on every
+        // variant). Only when AdMob IDs are configured do we swap the
+        // placeholder for the real AdView — the id stays the same.
+        if ($adsOn) {
+            $layoutPath = $outDir.'/app/src/main/res/layout/activity_main.xml';
+            $layout = file_get_contents($layoutPath);
+            $adXml = '            <com.google.android.gms.ads.AdView
                 android:id="@+id/ad_view"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom"
                 android:visibility="gone"
                 app:adSize="BANNER"
-                app:adUnitId="@string/s2a_admob_banner_id" />'
-            : '            <!-- ads disabled: no AdView -->';
-        self::replaceTokens($outDir.'/app/src/main/res/layout/activity_main.xml', [
-            '__ADS_VIEW__' => $adsView,
-        ]);
+                app:adUnitId="@string/s2a_admob_banner_id" />';
+            $layout = preg_replace(
+                '#<!-- ADS_PLACEHOLDER_BEGIN:.*?<!-- ADS_PLACEHOLDER_END -->#s',
+                $adXml,
+                $layout,
+                1
+            );
+            file_put_contents($layoutPath, $layout);
+        }
 
         // ---------- 3. AndroidManifest ----------
         $permissions = self::buildPermissions($c['permissions'] ?? []);
