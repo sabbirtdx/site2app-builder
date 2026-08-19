@@ -16,7 +16,6 @@
 
     <style name="Theme.Site2App.Splash" parent="Theme.Site2App">
         <item name="android:windowBackground">@drawable/bg_splash</item>
-        <item name="android:windowFullscreen">true</item>
     </style>
 
     <style name="S2A.BottomNav" parent="Widget.MaterialComponents.BottomNavigationView">
