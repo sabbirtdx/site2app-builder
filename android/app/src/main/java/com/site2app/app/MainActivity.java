@@ -70,6 +70,7 @@ import java.util.Locale;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+    private boolean webViewFailed = false;
     private SwipeRefreshLayout swipeRefresh;
     private ProgressBar progressBar;
     private MaterialToolbar toolbar;
@@ -175,14 +176,93 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        if (savedInstanceState == null) {
+        if (webViewFailed || S2AApplication.crashedBefore()) {
+            showFallbackScreen();
+        } else if (savedInstanceState == null) {
             String home = AppConfig.homeUrl();
             webView.loadUrl(home == null || home.isEmpty() ? "https://example.com" : home);
+            // We made it this far — this launch is healthy.
+            S2AApplication.clearLaunchFlag(getApplication());
         }
     }
 
+    /**
+     * Safe mode: shown when the WebView could not start (broken System
+     * WebView etc.). The app stays usable — the site opens in the browser.
+     */
+    private void showFallbackScreen() {
+        String home = AppConfig.homeUrl();
+        if (home == null || home.isEmpty()) {
+            home = "https://example.com";
+        }
+        final String siteUrl = home;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER);
+        root.setPadding(32, 32, 32, 32);
+        root.setBackgroundColor(Color.parseColor("#F8F9FA"));
+
+        TextView title = new TextView(this);
+        title.setText(getString(R.string.app_name));
+        title.setTextSize(22);
+        title.setTextColor(Color.parseColor("#222222"));
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView msg = new TextView(this);
+        msg.setText("The in-app browser could not start on this device (the system WebView may be outdated).\n\nYour website is just one tap away:");
+        msg.setTextSize(15);
+        msg.setTextColor(Color.parseColor("#555555"));
+        msg.setGravity(Gravity.CENTER);
+        msg.setPadding(0, 16, 0, 16);
+        root.addView(msg, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button openBrowser = new Button(this);
+        openBrowser.setText("Open website in browser");
+        openBrowser.setAllCaps(false);
+        openBrowser.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(siteUrl));
+                startActivity(i);
+            } catch (Throwable ignored) {
+            }
+        });
+        root.addView(openBrowser, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button tryAgain = new Button(this);
+        tryAgain.setText("Try in-app browser again");
+        tryAgain.setAllCaps(false);
+        tryAgain.setOnClickListener(v -> {
+            S2AApplication.resetCrashFlag(getApplication());
+            Intent i = new Intent(MainActivity.this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(i);
+            finish();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 12, 0, 0);
+        root.addView(tryAgain, lp);
+
+        TextView tip = new TextView(this);
+        tip.setText("Tip: update \"Android System WebView\" in the Play Store to fix the in-app browser.");
+        tip.setTextSize(12);
+        tip.setTextColor(Color.parseColor("#888888"));
+        tip.setGravity(Gravity.CENTER);
+        tip.setPadding(0, 24, 0, 0);
+        root.addView(tip, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        setContentView(root);
+        // Note: the launch flag is NOT cleared here on purpose — safe mode
+        // stays active across launches until the user taps "Try again".
+    }
+
     private void bindViews() {
-        webView = findViewById(R.id.webview);
         swipeRefresh = findViewById(R.id.swipe_refresh);
         progressBar = findViewById(R.id.progress_bar);
         toolbar = findViewById(R.id.toolbar);
@@ -193,9 +273,11 @@ public class MainActivity extends AppCompatActivity {
         navView = findViewById(R.id.nav_view);
         adView = findViewById(R.id.ad_view);
 
-        toolbar.setTitle(getString(R.string.app_name));
-        toolbar.setOnMenuItemClickListener(this::onToolbarItem);
-        setSupportActionBar(toolbar);
+        if (toolbar != null) {
+            toolbar.setTitle(getString(R.string.app_name));
+            toolbar.setOnMenuItemClickListener(this::onToolbarItem);
+            setSupportActionBar(toolbar);
+        }
     }
 
     private void loadNavItems() {
@@ -264,7 +346,9 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean onToolbarItem(MenuItem item) {
         if (item.getItemId() == R.id.action_home) {
-            webView.loadUrl(AppConfig.homeUrl());
+            if (webView != null) {
+                webView.loadUrl(AppConfig.homeUrl());
+            }
             return true;
         }
         if (item.getItemId() == R.id.action_share) {
@@ -287,6 +371,25 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
+        // Create the WebView programmatically. A broken/outdated System
+        // WebView can crash the whole process natively (no try/catch can
+        // stop that) — if creation fails we switch to safe browser mode.
+        try {
+            FrameLayout container = findViewById(R.id.webview_container);
+            if (container == null) {
+                webViewFailed = true;
+                return;
+            }
+            WebView wv = new WebView(this);
+            container.addView(wv, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            webView = wv;
+        } catch (Throwable t) {
+            webView = null;
+            webViewFailed = true;
+            return;
+        }
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -426,7 +529,11 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, "Downloads are disabled", Toast.LENGTH_SHORT).show());
         }
 
-        swipeRefresh.setOnRefreshListener(() -> webView.reload());
+        swipeRefresh.setOnRefreshListener(() -> {
+            if (webView != null) {
+                webView.reload();
+            }
+        });
         swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_light, android.R.color.holo_green_light, android.R.color.holo_orange_light);
     }
 
@@ -560,6 +667,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupNavigation() {
+        if (webView == null || webViewFailed) {
+            return;
+        }
         String navType = AppConfig.navigationType();
         if (navItems.isEmpty()) {
             return;
