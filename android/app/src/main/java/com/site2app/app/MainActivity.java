@@ -75,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
     private MaterialToolbar toolbar;
     private BottomNavigationView bottomNav;
     private LinearLayout topNav;
-    private HorizontalScrollTopNav topNavScroll;
+    private android.widget.HorizontalScrollView topNavScroll;
     private DrawerLayout drawerLayout;
     private NavigationView navView;
     private AdView adView;
@@ -104,12 +104,6 @@ public class MainActivity extends AppCompatActivity {
             this.label = label;
             this.url = url;
             this.icon = icon;
-        }
-    }
-
-    private static class HorizontalScrollTopNav extends android.widget.HorizontalScrollView {
-        HorizontalScrollTopNav(Context context) {
-            super(context);
         }
     }
 
