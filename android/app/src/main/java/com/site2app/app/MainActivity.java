@@ -70,6 +70,8 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private boolean webViewFailed = false;
+    private WebAppInterface jsBridge;
+    private String fcmToken = "";
     private SwipeRefreshLayout swipeRefresh;
     private ProgressBar progressBar;
     private MaterialToolbar toolbar;
@@ -317,6 +319,10 @@ public class MainActivity extends AppCompatActivity {
             toolbar.setTitle(getString(R.string.app_name));
             toolbar.setOnMenuItemClickListener(this::onToolbarItem);
             setSupportActionBar(toolbar);
+            // Toolbar is optional: hide it for a clean full-screen website.
+            if (!AppConfig.flag("show_toolbar")) {
+                toolbar.setVisibility(View.GONE);
+            }
         }
     }
 
@@ -449,7 +455,9 @@ public class MainActivity extends AppCompatActivity {
 
         CookieManager.getInstance().setAcceptCookie(true);
 
-        webView.addJavascriptInterface(new WebAppInterface(this), "Site2App");
+        jsBridge = new WebAppInterface(this);
+        webView.addJavascriptInterface(jsBridge, "Site2App");
+        fetchFcmToken();
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -550,6 +558,7 @@ public class MainActivity extends AppCompatActivity {
                 currentUrl = url;
                 progressBar.setVisibility(View.GONE);
                 swipeRefresh.setRefreshing(false);
+                publishTokenToWebsite(view);
                 highlightCurrentNav(url);
                 pagesLoaded++;
                 if (interstitialAd != null && !interstitialShown && pagesLoaded >= 2) {
@@ -579,6 +588,68 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_light, android.R.color.holo_green_light, android.R.color.holo_orange_light);
+    }
+
+    /**
+     * Fetch the FCM push token (reflection — Firebase classes only exist
+     * when push notifications are enabled for this app) and keep it ready
+     * for the website's own push system.
+     */
+    private void fetchFcmToken() {
+        try {
+            if (!AppConfig.flag("push_enabled")) {
+                return;
+            }
+            Class<?> cls = Class.forName("com.google.firebase.messaging.FirebaseMessaging");
+            Object instance = cls.getMethod("getInstance").invoke(null);
+            Object task = cls.getMethod("getToken").invoke(instance);
+            Class<?> taskCls = Class.forName("com.google.android.gms.tasks.Task");
+            Class<?> listenerIface = Class.forName("com.google.android.gms.tasks.OnCompleteListener");
+            Object listener = Proxy.newProxyInstance(
+                    listenerIface.getClassLoader(),
+                    new Class<?>[]{listenerIface},
+                    (proxy, method, args) -> {
+                        try {
+                            if ("onComplete".equals(method.getName()) && args != null && args.length > 0) {
+                                Object result = taskCls.getMethod("getResult").invoke(args[0]);
+                                if (result instanceof String) {
+                                    fcmToken = (String) result;
+                                    if (jsBridge != null) {
+                                        jsBridge.setFcmToken(fcmToken);
+                                    }
+                                    if (webView != null) {
+                                        webView.post(() -> publishTokenToWebsite(webView));
+                                    }
+                                }
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                        return null;
+                    });
+            taskCls.getMethod("addOnCompleteListener", listenerIface).invoke(task, listener);
+        } catch (Throwable ignored) {
+            // Firebase not bundled or token unavailable — website notifications
+            // still work through Site2App.notify().
+        }
+    }
+
+    /**
+     * Give the website the device token so ITS OWN push system can reach
+     * this device: window.S2A_FCM_TOKEN and window.S2A.onToken(token).
+     */
+    private void publishTokenToWebsite(WebView view) {
+        try {
+            if (fcmToken == null || fcmToken.isEmpty()) {
+                return;
+            }
+            String token = fcmToken.replace("'", "").replace("\\", "");
+            String js = "(function(){try{" +
+                    "window.S2A_FCM_TOKEN='" + token + "';" +
+                    "if(window.S2A&&typeof window.S2A.onToken==='function'){window.S2A.onToken('" + token + "');}" +
+                    "}catch(e){}})();";
+            view.evaluateJavascript(js, null);
+        } catch (Throwable ignored) {
+        }
     }
 
     private boolean handleHttpUrl(WebView view, Uri uri) {
