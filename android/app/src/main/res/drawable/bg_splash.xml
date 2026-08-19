@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Plain color only: a bitmap here would be drawn by the system during the
+     starting window (before any app code runs) and could crash the launch
+     on some devices. The splash IMAGE is shown inside SplashActivity. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/s2a_splash_bg" />
-    <item>
-        <bitmap
-            android:src="@drawable/splash"
-            android:gravity="center"
-            android:tileMode="disabled" />
-    </item>
 </layer-list>
