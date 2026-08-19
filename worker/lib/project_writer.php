@@ -275,6 +275,32 @@ class S2AProjectWriter
         ];
         file_put_contents($outDir.'/gradle.properties', implode("\n", $gradleProps)."\n");
 
+        // ---------- 2b. AdMob dependency (only when ads are configured) ----
+        // The Google Mobile Ads SDK initializes itself in a ContentProvider
+        // that runs BEFORE the app code on every launch — on several devices
+        // that provider is what crashes the app at startup. Apps without
+        // AdMob IDs therefore get a smaller, safer APK without the SDK at
+        // all (the app code talks to ads through reflection only).
+        $adsOn = ! empty($c['admob_banner_id']) || ! empty($c['admob_interstitial_id']);
+        self::replaceTokens($outDir.'/app/build.gradle', [
+            '__ADS_DEPS__' => $adsOn
+                ? "    implementation 'com.google.android.gms:play-services-ads:23.2.0'"
+                : '// Google Mobile Ads SDK not included (no AdMob IDs) — safer startup',
+        ]);
+        $adsView = $adsOn
+            ? '            <com.google.android.gms.ads.AdView
+                android:id="@+id/ad_view"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:visibility="gone"
+                app:adSize="BANNER"
+                app:adUnitId="@string/s2a_admob_banner_id" />'
+            : '            <!-- ads disabled: no AdView -->';
+        self::replaceTokens($outDir.'/app/src/main/res/layout/activity_main.xml', [
+            '__ADS_VIEW__' => $adsView,
+        ]);
+
         // ---------- 3. AndroidManifest ----------
         $permissions = self::buildPermissions($c['permissions'] ?? []);
         $manifest = file_get_contents($outDir.'/app/src/main/AndroidManifest.xml');
