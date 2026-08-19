@@ -129,10 +129,10 @@ jobs:
           SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -6 | head -c 900 || true)
           LOG=$(tail -c 90000 /tmp/build.log 2>/dev/null || true)
           SDKLOG=$(tail -c 30000 /tmp/sdk.log 2>/dev/null || true)
+          COMBINED=$(printf '%s\n%s' "$LOG" "$SDKLOG")
           curl -fsSL \
             -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
             -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
             -F "error=GitHub Actions build failed${SUMMARY:+: $SUMMARY}" \
-            -F "log=${LOG}
-${SDKLOG}" \
+            -F "log=$COMBINED" \
             "${{ github.event.client_payload.callback_fail }}" || true
