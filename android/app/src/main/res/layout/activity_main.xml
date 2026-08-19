@@ -48,7 +48,17 @@
                 android:progressTint="@color/s2a_theme"
                 android:visibility="gone" />
 
-            __ADS_VIEW__
+            <!-- ADS_PLACEHOLDER_BEGIN: the id ad_view must ALWAYS exist so
+                 MainActivity compiles on every variant. The project writer
+                 swaps this placeholder for the real AdView when AdMob is
+                 configured. -->
+            <FrameLayout
+                android:id="@+id/ad_view"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:visibility="gone" />
+            <!-- ADS_PLACEHOLDER_END -->
         </FrameLayout>
 
         <HorizontalScrollView
