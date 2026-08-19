@@ -1,5 +1,3 @@
-===== build.yml — SELECT ALL + COPY =====
-
 name: Site2App Android Build
 
 # Triggered by the Site2App platform via repository_dispatch.
@@ -58,12 +56,43 @@ jobs:
       - name: Install Android SDK components
         run: |
           set -e
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          mkdir -p "$ANDROID_HOME"
+
+          SDKMGR=""
+          for CAND in "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/cmdline-tools/bin/sdkmanager"; do
+            if [ -x "$CAND" ]; then SDKMGR="$CAND"; break; fi
+          done
+          if [ -z "$SDKMGR" ] && command -v sdkmanager >/dev/null 2>&1; then
+            SDKMGR="$(command -v sdkmanager)"
+          fi
+
+          if [ -z "$SDKMGR" ]; then
+            echo "sdkmanager not present on this runner - downloading command-line tools..."
+            curl -sL --retry 5 --retry-delay 5 \
+              -o /tmp/cmdline-tools.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            unzip -q -o /tmp/cmdline-tools.zip -d /tmp/cmt
+            rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+            mv /tmp/cmt/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+            SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            chmod +x "$SDKMGR"
+          fi
+
+          echo "Using sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" 2>&1 | tee /tmp/sdk.log
+          echo "Installed SDK components:"
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" || true
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
 
       - name: Build (assembleRelease / bundleRelease)
         run: |
           set -e
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
           cd out/project
           if [ "${{ github.event.client_payload.build_type }}" = "aab" ]; then
             gradle bundleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
@@ -97,11 +126,13 @@ jobs:
       - name: Report failure to Site2App
         if: failure()
         run: |
-          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to" /tmp/build.log 2>/dev/null | tail -6 | head -c 900 || true)
-          LOG=$(tail -c 90000 /tmp/build.log 2>/dev/null || echo "build failed without log")
+          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -6 | head -c 900 || true)
+          LOG=$(tail -c 90000 /tmp/build.log 2>/dev/null || true)
+          SDKLOG=$(tail -c 30000 /tmp/sdk.log 2>/dev/null || true)
           curl -fsSL \
             -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
             -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
             -F "error=GitHub Actions build failed${SUMMARY:+: $SUMMARY}" \
-            -F "log=$LOG" \
+            -F "log=${LOG}
+${SDKLOG}" \
             "${{ github.event.client_payload.callback_fail }}" || true
