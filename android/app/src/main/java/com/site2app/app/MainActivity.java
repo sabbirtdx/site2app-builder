@@ -111,6 +111,53 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        try {
+            createContent(savedInstanceState);
+        } catch (Throwable t) {
+            showFatalError(t);
+        }
+    }
+
+    /**
+     * Never let the app die silently. If anything in the startup path
+     * throws, show the exact error on screen so it can be reported.
+     */
+    private void showFatalError(Throwable t) {
+        try {
+            setContentView(R.layout.activity_main);
+            bindViews();
+        } catch (Throwable ignored) {
+        }
+        String detail = t.getClass().getSimpleName() + ": " + (t.getMessage() == null ? "(no message)" : t.getMessage());
+        try {
+            if (t.getCause() != null && t.getCause().getMessage() != null) {
+                detail += "\nCaused by: " + t.getCause().getClass().getSimpleName() + ": " + t.getCause().getMessage();
+            }
+        } catch (Throwable ignored) {
+        }
+        Toast.makeText(this, detail, Toast.LENGTH_LONG).show();
+        try {
+            if (webView != null) {
+                webView.loadData(
+                        "<html><body style='font-family:sans-serif;padding:24px;background:#F8F9FA;color:#222'>"
+                                + "<h2>App could not start</h2>"
+                                + "<p>Please send this error to support:</p>"
+                                + "<pre style='white-space:pre-wrap;word-break:break-word;background:#FFF;padding:12px;border:1px solid #DDD;border-radius:8px'>"
+                                + detail.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                                + "</pre></body></html>", "text/html", "UTF-8");
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        TextView errorText = new TextView(this);
+        errorText.setText("App could not start.\n\n" + detail);
+        errorText.setTextSize(14);
+        errorText.setPadding(24, 24, 24, 24);
+        setContentView(errorText);
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void createContent(Bundle savedInstanceState) {
         AppConfig.init(getApplicationContext());
         setContentView(R.layout.activity_main);
 
@@ -385,7 +432,11 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean handleHttpUrl(WebView view, Uri uri) {
         String host = uri.getHost();
-        String websiteHost = Uri.parse(AppConfig.websiteUrl()).getHost();
+        String websiteHost = null;
+        try {
+            websiteHost = Uri.parse(AppConfig.websiteUrl()).getHost();
+        } catch (Exception ignored) {
+        }
         boolean isExternal = host != null && websiteHost != null && !host.equalsIgnoreCase(websiteHost);
 
         if (isExternal && AppConfig.flag("open_links_external")) {
@@ -536,7 +587,11 @@ public class MainActivity extends AppCompatActivity {
                     .setIcon(iconResource(item.icon));
         }
         bottomNav.setOnItemSelectedListener(item -> {
-            NavItem navItem = navItems.get(item.getItemId());
+            int index = item.getItemId();
+            if (index < 0 || index >= navItems.size()) {
+                return true;
+            }
+            NavItem navItem = navItems.get(index);
             webView.loadUrl(navItem.url);
             return true;
         });
@@ -570,7 +625,12 @@ public class MainActivity extends AppCompatActivity {
                     .setIcon(iconResource(item.icon));
         }
         navView.setNavigationItemSelectedListener(item -> {
-            NavItem navItem = navItems.get(item.getItemId());
+            int index = item.getItemId();
+            if (index < 0 || index >= navItems.size()) {
+                drawerLayout.closeDrawers();
+                return true;
+            }
+            NavItem navItem = navItems.get(index);
             webView.loadUrl(navItem.url);
             drawerLayout.closeDrawers();
             return true;
