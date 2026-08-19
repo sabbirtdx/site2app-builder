@@ -62,7 +62,7 @@ dependencies {
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'com.google.android.material:material:1.12.0'
-    implementation 'com.google.android.gms:play-services-ads:23.2.0'
     implementation 'org.json:json:20240303'
+    __ADS_DEPS__
     __FIREBASE_DEPS__
 }
