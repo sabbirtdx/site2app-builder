@@ -17,6 +17,15 @@ public class SplashActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        try {
+            showSplash();
+        } catch (Throwable t) {
+            // Never block the app on a splash-screen problem — go straight in.
+            goToMain();
+        }
+    }
+
+    private void showSplash() {
         AppConfig.init(getApplicationContext());
 
         setContentView(R.layout.activity_splash);
@@ -30,10 +39,15 @@ public class SplashActivity extends AppCompatActivity {
         }
         splashTitle.setText(getString(R.string.app_name));
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+        new Handler(Looper.getMainLooper()).postDelayed(this::goToMain, 1400);
+    }
+
+    private void goToMain() {
+        try {
             Intent intent = new Intent(SplashActivity.this, MainActivity.class);
             startActivity(intent);
-            finish();
-        }, 1400);
+        } catch (Throwable ignored) {
+        }
+        finish();
     }
 }
