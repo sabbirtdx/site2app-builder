@@ -74,7 +74,7 @@ public class WebAppInterface {
                 }
             }
             NotificationCompat.Builder builder = new NotificationCompat.Builder(activity, channelId)
-                    .setSmallIcon(R.drawable.ic_stat_s2a)
+                    .setSmallIcon(R.drawable.ic_notif_fallback)
                     .setContentTitle(title.length() > 60 ? title.substring(0, 60) : title)
                     .setContentText(message.length() > 240 ? message.substring(0, 240) : message)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(message.length() > 240 ? message.substring(0, 240) : message))
