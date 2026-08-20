@@ -42,6 +42,9 @@ public class S2AApplication extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // Flags are read from resources — initialize AppConfig here too.
+        AppConfig.init(getApplicationContext());
+
         // Detect a previous crash (flag survived from the last launch).
         File flag = launchFlagFile(this);
         sCrashedBefore = flag.exists();
@@ -51,6 +54,20 @@ public class S2AApplication extends Application {
             }
             try (FileWriter fw = new FileWriter(flag)) {
                 fw.write(String.valueOf(System.currentTimeMillis()));
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // OneSignal (push provider = onesignal) — reflection keeps this
+        // compile-safe even when the SDK dependency is not bundled.
+        try {
+            if (AppConfig.flag("push_onesignal_enabled")) {
+                String appId = AppConfig.get("s2a_onesignal_app_id");
+                if (appId != null && !appId.isEmpty()) {
+                    Class<?> cls = Class.forName("com.onesignal.OneSignal");
+                    cls.getMethod("initWithContext", Context.class).invoke(null, this);
+                    cls.getMethod("setAppId", String.class).invoke(null, appId);
+                }
             }
         } catch (Throwable ignored) {
         }
