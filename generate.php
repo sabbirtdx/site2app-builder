@@ -151,6 +151,7 @@ if ($needsFresh) {
 $projectDir = rtrim($outDir, '/').'/project';
 
 S2AProjectWriter::write([
+    'app_id' => (int) ($job['app_id'] ?? 0),
     'package' => (string) $job['package_name'],
     'version_name' => (string) ($job['version_name'] ?? '1.0.0'),
     'version_code' => (int) ($job['version_code'] ?? 1),
