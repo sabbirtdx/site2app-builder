@@ -93,8 +93,8 @@ class S2AIconGenerator
         }
 
         // Notification icon (small, centered)
-        self::saveResized($source, $drawable.'/ic_notification.png', 96, 96);
-        $made[] = 'drawable/ic_notification.png';
+        self::saveResized($source, $drawable.'/ic_stat_s2a.png', 96, 96);
+        $made[] = 'drawable/ic_stat_s2a.png';
 
         // Adaptive foreground: icon centered with safe-zone padding
         $fg = self::createCanvas(432, 432);
@@ -233,6 +233,22 @@ class S2AProjectWriter
         mkdir($outDir, 0775, true);
 
         s2a_recursive_copy($templateDir, $outDir);
+
+        // ===== Stale-file guard =====
+        // Older templates shipped ic_notification.xml / ic_stat_s2a.xml,
+        // which collide with the generated notification PNG and aborted
+        // every build with "Resource and asset merger: Duplicate resources".
+        // Delete them from EVERY generated project so this error can never
+        // come back, no matter what the template folder still contains.
+        foreach ([
+            $outDir.'/app/src/main/res/drawable/ic_notification.xml',
+            $outDir.'/app/src/main/res/drawable/ic_notification.png',
+            $outDir.'/app/src/main/res/drawable/ic_stat_s2a.xml',
+        ] as $stale) {
+            if (file_exists($stale)) {
+                @unlink($stale);
+            }
+        }
 
         $resDir = $outDir.'/app/src/main/res';
 
