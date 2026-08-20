@@ -91,6 +91,103 @@ jobs:
       - name: Build (assembleRelease / bundleRelease)
         run: |
           set -e
+          set -o pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          cd out/project
+          if [ "${{ github.event.client_payload.build_type }}" = "aab" ]; then
+            gradle bundleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
+          else
+            gradle assembleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
+          fi
+
+      - name: Upload APK/AAB to Site2App
+        run: |
+          set -e
+          if [ "${{ github.event.client_payload.build_type }}" = "aab" ]; then
+            ART=$(find out/project/app/build/outputs/bundle/release -name '*.aab' | head -1)
+          else
+            ART=$(find out/project/app/build/outputs/apk/release -name '*.apk' | head -1)
+          fi
+          if [ -z "$ART" ]; then
+            echo "No artifact produced"
+            exit 1
+          fi
+          SHA=$(sha256sum "$ART" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "$ART")
+          echo "artifact: $ART ($SIZE bytes, sha256 $SHA)"
+          # Stage 1 — RAW upload: a lenient endpoint that only checks worker
+          # auth and stores the APK, no matter what the build status is.
+          # This is immune to status-sync races (409) and validation races.
+          RAW_URL=$(echo "${{ github.event.client_payload.callback_complete }}" | sed 's#/complete$#/upload-raw#')
+          RAW_CODE=$(curl -sSL -o /tmp/raw-response.log -w "%{http_code}" \
+            --retry 10 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 300 \
+            -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
+            -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
+            -F "sha256=$SHA" \
+            -F "size=$SIZE" \
+            -F "artifact=@$ART" \
+            "$RAW_URL")
+          echo "raw upload HTTP status: $RAW_CODE"
+          echo "raw upload response: $(cat /tmp/raw-response.log)"
+          # Stage 2 — normal complete() to finalize the build on the platform
+          HTTP_CODE=$(curl -sSL -o /tmp/upload-response.log -w "%{http_code}" \
+            --retry 10 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 300 \
+            -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
+            -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
+            -F "sha256=$SHA" \
+            -F "size=$SIZE" \
+            -F "artifact=@$ART" \
+            "${{ github.event.client_payload.callback_complete }}")
+          echo "platform HTTP status: $HTTP_CODE"
+          echo "platform response: $(cat /tmp/upload-response.log)"
+          RAW_FAIL=$([ "$RAW_CODE" -ge 400 ] || [ "$RAW_CODE" = "000" ] && echo 1 || echo 0)
+          COMPLETE_FAIL=$([ "$HTTP_CODE" -ge 400 ] && echo 1 || echo 0)
+          if [ "$RAW_FAIL" = "1" ] && [ "$COMPLETE_FAIL" = "1" ]; then
+            echo "PLATFORM REJECTED THE UPLOAD (raw=$RAW_CODE, complete=$HTTP_CODE): $(cat /tmp/raw-response.log) $(cat /tmp/upload-response.log)" | tee -a /tmp/build.log
+            exit 1
+          fi
+          echo "APK delivered (raw=$RAW_CODE, complete=$HTTP_CODE)" | tee -a /tmp/build.log
+
+      - name: Report failure to Site2App
+        if: failure()
+        run: |
+          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -6 | head -c 900 || true)
+          LOG=$(tail -c 90000 /tmp/build.log 2>/dev/null || true)
+          SDKLOG=$(tail -c 30000 /tmp/sdk.log 2>/dev/null || true)
+          COMBINED=$(printf '%s\n%s' "$LOG" "$SDKLOG")
+          curl -fsSL \
+            -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
+            -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
+            -F "error=GitHub Actions build failed${SUMMARY:+: $SUMMARY}" \
+            -F "log=$COMBINED" \
+            "${{ github.event.client_payload.callback_fail }}" || true            if [ -x "$CAND" ]; then SDKMGR="$CAND"; break; fi
+          done
+          if [ -z "$SDKMGR" ] && command -v sdkmanager >/dev/null 2>&1; then
+            SDKMGR="$(command -v sdkmanager)"
+          fi
+          if [ -z "$SDKMGR" ]; then
+            echo "sdkmanager not present - downloading command-line tools"
+            curl -sL --retry 5 --retry-delay 5 \
+              -o /tmp/cmdline-tools.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            unzip -q -o /tmp/cmdline-tools.zip -d /tmp/cmt
+            rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+            mv /tmp/cmt/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+            SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            chmod +x "$SDKMGR"
+          fi
+          echo "Using sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" 2>&1 | tee /tmp/sdk.log
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+      - name: Build (assembleRelease / bundleRelease)
+        run: |
+          set -e
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           cd out/project
