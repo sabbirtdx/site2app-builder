@@ -185,3 +185,9 @@ file_put_contents($projectDir.'/local.properties', "sdk.dir=".$sdk."\n");
 
 echo "Project generated: ".$projectDir."\n";
 echo "Keystore: ".(file_exists($keystorePath) ? 'ready' : 'missing')."\n";
+
+// Surface Firebase tolerance warnings so they land in the runner log.
+$pushWarnFile = rtrim($outDir, '/').'/push-warning.txt';
+if (file_exists($pushWarnFile)) {
+    echo (string) file_get_contents($pushWarnFile);
+}
