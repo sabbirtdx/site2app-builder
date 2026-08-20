@@ -161,6 +161,16 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     private void createContent(Bundle savedInstanceState) {
         AppConfig.init(getApplicationContext());
+
+        // Self-hosted push (provider = site): no Firebase, no third party —
+        // the app checks the platform for new notifications every 5 minutes.
+        if (AppConfig.flag("push_site_enabled")) {
+            try {
+                S2APushPoller.start(getApplicationContext());
+            } catch (Throwable ignored) {
+            }
+        }
+
         setContentView(R.layout.activity_main);
 
         bindViews();
