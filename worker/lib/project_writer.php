@@ -294,6 +294,19 @@ class S2AProjectWriter
             S2AIconGenerator::prepareSplash($c['icon_path'], $resDir);
         }
 
+        // ---------- 1a. Push provider ----------
+        // 'firebase' (default), 'onesignal' (no Firebase), or 'site'
+        // (self-hosted polling — no third party at all).
+        $pushProvider = (string) ($c['settings']['push_provider'] ?? 'firebase');
+        if (! in_array($pushProvider, ['firebase', 'onesignal', 'site'], true)) {
+            $pushProvider = 'firebase';
+        }
+        if ($pushProvider !== 'firebase') {
+            // Only Firebase uses google-services.json; other providers must
+            // never include the FCM service or its Gradle plugin.
+            $c['fcm_json'] = null;
+        }
+
         // ---------- 1b. Firebase config tolerance ----------
         // A malformed google-services.json (truncated paste, missing
         // api_key, or wrong package name) used to fail the whole Gradle
@@ -341,9 +354,12 @@ class S2AProjectWriter
             '__GOOGLE_SERVICES__' => (! empty($c['push_enabled']) && ! empty($c['fcm_json']))
                 ? "id 'com.google.gms.google-services'"
                 : "// Google services plugin not applied (push notifications disabled)",
-            '__FIREBASE_DEPS__' => (! empty($c['push_enabled']) && ! empty($c['fcm_json']))
+            '__GOOGLE_SERVICES__' => ($pushProvider === 'firebase' && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
+                ? "id 'com.google.gms.google-services'"
+                : "// Google services plugin not applied (push provider: {$pushProvider})",
+            '__FIREBASE_DEPS__' => ($pushProvider === 'firebase' && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
                 ? "    implementation platform('com.google.firebase:firebase-bom:33.1.2')\n    implementation 'com.google.firebase:firebase-messaging'"
-                : "// Firebase dependencies not applied (push notifications disabled)",
+                : "// Firebase dependencies not applied (push provider: {$pushProvider})",
         ]);
 
         $gradleProps = [
@@ -372,6 +388,9 @@ class S2AProjectWriter
             '__ADS_DEPS__' => $adsOn
                 ? "    implementation 'com.google.android.gms:play-services-ads:23.2.0'"
                 : '// Google Mobile Ads SDK not included (no AdMob IDs) — safer startup',
+            '__ONESIGNAL_DEPS__' => $pushProvider === 'onesignal'
+                ? "    implementation 'com.onesignal:OneSignal:5.1.29'"
+                : "// OneSignal SDK not included (push provider: {$pushProvider})",
         ]);
         // The template ALWAYS contains a FrameLayout placeholder with the
         // id ad_view (so the R class and MainActivity compile on every
@@ -418,10 +437,11 @@ class S2AProjectWriter
         file_put_contents($outDir.'/app/src/main/AndroidManifest.xml', $manifest);
 
         // ---------- 4. Firebase / AdMob ----------
-        if (! empty($c['push_enabled']) && ! empty($c['fcm_json'])) {
+        if ($pushProvider === 'firebase' && ! empty($c['push_enabled']) && ! empty($c['fcm_json'])) {
             file_put_contents($outDir.'/app/google-services.json', $c['fcm_json']);
         } else {
             // Keep FCM classes out of the compilation when push is disabled
+            // OR when the provider is onesignal/site.
             @unlink($outDir.'/app/src/main/java/com/site2app/app/S2APushService.java');
         }
 
@@ -516,7 +536,23 @@ class S2AProjectWriter
             'push_register_url' => $c['push_register_url'] ?? '',
         ];
 
+        // Provider-driven runtime flags (push provider lives in settings).
+        $provider = (string) ($settings['push_provider'] ?? 'firebase');
+        if (! in_array($provider, ['firebase', 'onesignal', 'site'], true)) {
+            $provider = 'firebase';
+        }
+        $flags['push_site_enabled'] = ($provider === 'site' && ! empty($c['push_enabled'])) ? 'true' : 'false';
+        $flags['push_onesignal_enabled'] = ($provider === 'onesignal' && ! empty($c['push_enabled'])) ? 'true' : 'false';
+
         $xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n";
+        // app id (for the self-hosted polling endpoint)
+        if (! empty($c['app_id'])) {
+            $xml .= '    <integer name="s2a_app_id" translatable="false">'.(int) $c['app_id'].'</integer>\n';
+        }
+        // OneSignal app id
+        if (! empty($settings['onesignal_app_id'])) {
+            $xml .= '    <string name="s2a_onesignal_app_id" translatable="false">'.htmlspecialchars((string) $settings['onesignal_app_id'], ENT_XML1).'</string>\n';
+        }
         foreach ($flags as $key => $value) {
             $safeKey = str_replace('_', '_', $key);
             $xml .= '    <string name="s2a_'.$safeKey.'" translatable="false">'.htmlspecialchars((string) $value, ENT_XML1)."</string>\n";
@@ -569,6 +605,10 @@ class S2AProjectWriter
             '@string/s2a_show_home_button',
             '@string/s2a_show_toolbar',
             '@string/s2a_push_register_url',
+            '@string/s2a_push_site_enabled',
+            '@string/s2a_push_onesignal_enabled',
+            '@integer/s2a_app_id',
+            '@string/s2a_onesignal_app_id',
             '@string/app_name',
             '@string/s2a_admob_banner_id',
             '@string/s2a_admob_interstitial_id',
