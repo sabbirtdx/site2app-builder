@@ -65,4 +65,5 @@ dependencies {
     implementation 'org.json:json:20240303'
     __ADS_DEPS__
     __FIREBASE_DEPS__
+    __ONESIGNAL_DEPS__
 }
