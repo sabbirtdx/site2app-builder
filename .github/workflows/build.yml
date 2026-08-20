@@ -3,9 +3,17 @@ name: Site2App Android Build
 on:
   repository_dispatch:
     types: [site2app-build]
+  # AUTO-POLL: every 5 minutes GitHub itself asks the Site2App site for
+  # waiting builds. This makes builds work even when the site's server
+  # cannot reach api.github.com (shared-hosting outbound blocks).
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
+  # ============ DISPATCH MODE (server pushes the job to GitHub) ============
   build:
+    if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Setup Java 17
@@ -116,9 +124,7 @@ jobs:
           SHA=$(sha256sum "$ART" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$ART")
           echo "artifact: $ART ($SIZE bytes, sha256 $SHA)"
-          # Stage 1 — RAW upload: a lenient endpoint that only checks worker
-          # auth and stores the APK, no matter what the build status is.
-          # This is immune to status-sync races (409) and validation races.
+          # Stage 1 — RAW upload (lenient, immune to status races)
           RAW_URL=$(echo "${{ github.event.client_payload.callback_complete }}" | sed 's#/complete$#/upload-raw#')
           RAW_CODE=$(curl -sSL -o /tmp/raw-response.log -w "%{http_code}" \
             --retry 10 --retry-all-errors --retry-delay 3 \
@@ -131,7 +137,7 @@ jobs:
             "$RAW_URL")
           echo "raw upload HTTP status: $RAW_CODE"
           echo "raw upload response: $(cat /tmp/raw-response.log)"
-          # Stage 2 — normal complete() to finalize the build on the platform
+          # Stage 2 — normal complete() to finalize
           HTTP_CODE=$(curl -sSL -o /tmp/upload-response.log -w "%{http_code}" \
             --retry 10 --retry-all-errors --retry-delay 3 \
             --connect-timeout 30 --max-time 300 \
@@ -163,7 +169,91 @@ jobs:
             -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
             -F "error=GitHub Actions build failed${SUMMARY:+: $SUMMARY}" \
             -F "log=$COMBINED" \
-            "${{ github.event.client_payload.callback_fail }}" || true            if [ -x "$CAND" ]; then SDKMGR="$CAND"; break; fi
+            "${{ github.event.client_payload.callback_fail }}" || true
+
+  # ============ POLL MODE (GitHub pulls waiting builds from the site) ======
+  poll:
+    if: github.event_name != 'repository_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for pending builds on Site2App
+        run: |
+          set -e
+          HTTP=$(curl -sS -o /tmp/job.json -w "%{http_code}" \
+            --retry 3 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 120 \
+            "https://winbdbet.skyhostr.my.id/api/worker/next-pending")
+          if [ "$HTTP" = "204" ]; then
+            echo "No pending builds - nothing to do."
+            exit 0
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "Unexpected HTTP $HTTP (site may be updating) - skipping this round."
+            exit 0
+          fi
+          python3 - <<'PYEOF'
+          import json, os, sys
+          try:
+              job = json.load(open('/tmp/job.json'))
+              assert isinstance(job, dict) and job.get('build_id')
+          except Exception:
+              print("job.json was not a valid job payload - skipping this round.")
+              sys.exit(0)
+          with open('/tmp/job.env', 'w') as f:
+              for k in ['build_id','build_type','app_name','job_token','template_url','callback_complete','callback_fail','callback_keystore']:
+                  f.write("JOB_%s=%s\n" % (k.upper(), str(job.get(k, '')).replace('\n','').replace('\r','')))
+          print("Picked up build", job.get('build_id'))
+          PYEOF
+          cat /tmp/job.env >> "$GITHUB_ENV"
+
+      - name: Setup Java 17 (poll)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle 8.9 (poll)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Fetch builder package from Site2App (poll)
+        run: |
+          set -e
+          curl -fsSL --retry 5 --retry-delay 3 \
+            -H "X-Worker-Job-Id: $JOB_JOB_TOKEN" \
+            "$JOB_TEMPLATE_URL" -o /tmp/template.zip
+          unzip -q -o /tmp/template.zip -d "$GITHUB_WORKSPACE"
+          echo "builder package ready"
+
+      - name: Generate Android project (poll)
+        run: |
+          set -e
+          php generate.php /tmp/job.json $GITHUB_WORKSPACE/out
+
+      - name: Upload new signing keystore (poll)
+        run: |
+          set -e
+          if [ -f out/work/newkeystore/new.jks ]; then
+            PASS=$(cat out/work/newkeystore/password.txt)
+            curl -fsSL --retry 5 --retry-delay 3 \
+              -F "worker_job_id=$JOB_JOB_TOKEN" \
+              -F "keystore_password=$PASS" \
+              -F "artifact=@out/work/newkeystore/new.jks" \
+              "$JOB_CALLBACK_KEYSTORE"
+          else
+            echo "Keystore already exists on the platform - skipping upload"
+          fi
+
+      - name: Install Android SDK components (poll)
+        run: |
+          set -e
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          mkdir -p "$ANDROID_HOME"
+          SDKMGR=""
+          for CAND in "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/cmdline-tools/bin/sdkmanager"; do
+            if [ -x "$CAND" ]; then SDKMGR="$CAND"; break; fi
           done
           if [ -z "$SDKMGR" ] && command -v sdkmanager >/dev/null 2>&1; then
             SDKMGR="$(command -v sdkmanager)"
@@ -185,22 +275,23 @@ jobs:
           "$SDKMGR" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" 2>&1 | tee /tmp/sdk.log
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
 
-      - name: Build (assembleRelease / bundleRelease)
+      - name: Build (poll)
         run: |
           set -e
+          set -o pipefail
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           cd out/project
-          if [ "${{ github.event.client_payload.build_type }}" = "aab" ]; then
+          if [ "$JOB_BUILD_TYPE" = "aab" ]; then
             gradle bundleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
           else
             gradle assembleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
           fi
 
-      - name: Upload APK/AAB to Site2App
+      - name: Upload APK/AAB to Site2App (poll)
         run: |
           set -e
-          if [ "${{ github.event.client_payload.build_type }}" = "aab" ]; then
+          if [ "$JOB_BUILD_TYPE" = "aab" ]; then
             ART=$(find out/project/app/build/outputs/bundle/release -name '*.aab' | head -1)
           else
             ART=$(find out/project/app/build/outputs/apk/release -name '*.apk' | head -1)
@@ -212,15 +303,34 @@ jobs:
           SHA=$(sha256sum "$ART" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$ART")
           echo "artifact: $ART ($SIZE bytes, sha256 $SHA)"
-          curl -fsSL --retry 5 --retry-delay 5 \
-            -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
-            -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
+          RAW_URL=$(echo "$JOB_CALLBACK_COMPLETE" | sed 's#/complete$#/upload-raw#')
+          RAW_CODE=$(curl -sSL -o /tmp/raw-response.log -w "%{http_code}" \
+            --retry 10 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 300 \
+            -F "worker_job_id=$JOB_JOB_TOKEN" \
             -F "sha256=$SHA" \
             -F "size=$SIZE" \
             -F "artifact=@$ART" \
-            "${{ github.event.client_payload.callback_complete }}"
+            "$RAW_URL")
+          echo "raw upload HTTP status: $RAW_CODE"
+          HTTP_CODE=$(curl -sSL -o /tmp/upload-response.log -w "%{http_code}" \
+            --retry 10 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 300 \
+            -F "worker_job_id=$JOB_JOB_TOKEN" \
+            -F "sha256=$SHA" \
+            -F "size=$SIZE" \
+            -F "artifact=@$ART" \
+            "$JOB_CALLBACK_COMPLETE")
+          echo "platform HTTP status: $HTTP_CODE"
+          RAW_FAIL=$([ "$RAW_CODE" -ge 400 ] || [ "$RAW_CODE" = "000" ] && echo 1 || echo 0)
+          COMPLETE_FAIL=$([ "$HTTP_CODE" -ge 400 ] && echo 1 || echo 0)
+          if [ "$RAW_FAIL" = "1" ] && [ "$COMPLETE_FAIL" = "1" ]; then
+            echo "PLATFORM REJECTED THE UPLOAD (raw=$RAW_CODE, complete=$HTTP_CODE): $(cat /tmp/raw-response.log) $(cat /tmp/upload-response.log)" | tee -a /tmp/build.log
+            exit 1
+          fi
+          echo "APK delivered (raw=$RAW_CODE, complete=$HTTP_CODE)" | tee -a /tmp/build.log
 
-      - name: Report failure to Site2App
+      - name: Report failure to Site2App (poll)
         if: failure()
         run: |
           SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -6 | head -c 900 || true)
@@ -228,8 +338,7 @@ jobs:
           SDKLOG=$(tail -c 30000 /tmp/sdk.log 2>/dev/null || true)
           COMBINED=$(printf '%s\n%s' "$LOG" "$SDKLOG")
           curl -fsSL \
-            -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
-            -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
+            -F "worker_job_id=$JOB_JOB_TOKEN" \
             -F "error=GitHub Actions build failed${SUMMARY:+: $SUMMARY}" \
             -F "log=$COMBINED" \
-            "${{ github.event.client_payload.callback_fail }}" || true
+            "$JOB_CALLBACK_FAIL" || true
