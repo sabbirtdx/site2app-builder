@@ -39,7 +39,10 @@ public class S2APushService extends FirebaseMessagingService {
         Map<String, String> data = message.getData();
         String title = data.containsKey("title") ? data.get("title") : message.getNotification() != null ? message.getNotification().getTitle() : "New notification";
         String body = data.containsKey("body") ? data.get("body") : message.getNotification() != null ? message.getNotification().getBody() : "";
-        showNotification(title, body);
+        String imageUrl = data.containsKey("image") ? data.get("image")
+                : message.getNotification() != null && message.getNotification().getImageUrl() != null
+                    ? message.getNotification().getImageUrl().toString() : null;
+        showNotification(title, body, imageUrl);
     }
 
     private void registerToken(String token) {
@@ -73,7 +76,7 @@ public class S2APushService extends FirebaseMessagingService {
         }).start();
     }
 
-    private void showNotification(String title, String body) {
+    private void showNotification(String title, String body, String imageUrl) {
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
 
@@ -92,6 +95,38 @@ public class S2APushService extends FirebaseMessagingService {
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
+        // Image support: when the push carries an image URL, download it
+        // and show it big (BigPictureStyle) so the notification is rich.
+        if (imageUrl != null && !imageUrl.isEmpty()) {
+            android.graphics.Bitmap image = downloadImage(imageUrl);
+            if (image != null) {
+                builder.setStyle(new NotificationCompat.BigPictureStyle()
+                        .bigPicture(image)
+                        .bigLargeIcon(null)
+                        .setSummaryText(body));
+            }
+        }
+
         manager.notify((int) System.currentTimeMillis(), builder.build());
+    }
+
+    private android.graphics.Bitmap downloadImage(String url) {
+        java.net.HttpURLConnection connection = null;
+        try {
+            connection = (java.net.HttpURLConnection) new URL(url).openConnection();
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(15000);
+            connection.setRequestProperty("User-Agent", "Site2App/1.0");
+            connection.connect();
+            try (java.io.InputStream in = connection.getInputStream()) {
+                return android.graphics.BitmapFactory.decodeStream(in);
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 }
