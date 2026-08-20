@@ -263,6 +263,45 @@ class S2AProjectWriter
             S2AIconGenerator::prepareSplash($c['icon_path'], $resDir);
         }
 
+        // ---------- 1b. Firebase config tolerance ----------
+        // A malformed google-services.json (truncated paste, missing
+        // api_key, or wrong package name) used to fail the whole Gradle
+        // build at processReleaseGoogleServices — and the workflow then
+        // blamed the upload step for it. Never let one broken file kill
+        // the build: fall back to a push-disabled app and record a clear
+        // warning for the runner log instead.
+        $pushWarning = null;
+        if (! empty($c['push_enabled']) && ! empty($c['fcm_json']) && is_string($c['fcm_json'])) {
+            $fcmCheck = json_decode($c['fcm_json'], true);
+            $fcmPkg = $fcmCheck['client'][0]['client_info']['android_client_info']['package_name'] ?? null;
+            $fcmHasKey = false;
+            foreach (($fcmCheck['client'] ?? []) as $fcmCli) {
+                foreach (($fcmCli['api_key'] ?? []) as $fcmK) {
+                    if (! empty($fcmK['current_key'])) {
+                        $fcmHasKey = true;
+                    }
+                }
+            }
+            $fcmBad = null;
+            if (! is_array($fcmCheck)) {
+                $fcmBad = 'not valid JSON';
+            } elseif (! $fcmHasKey) {
+                $fcmBad = 'missing api_key/current_key';
+            } elseif ($fcmPkg && $fcmPkg !== ($c['package'] ?? '')) {
+                $fcmBad = 'package mismatch (file has '.$fcmPkg.', app is '.($c['package'] ?? '?').')';
+            }
+            if ($fcmBad !== null) {
+                $c['push_enabled'] = false;
+                $pushWarning = 'WARNING: Firebase config invalid ('.$fcmBad.') — push notifications were disabled for this build so it can still complete. Upload a correct google-services.json (Firebase Console) to re-enable push.';
+            }
+        }
+        if ($pushWarning !== null) {
+            $warningDir = dirname($outDir);
+            @mkdir($warningDir, 0775, true);
+            file_put_contents($warningDir.'/push-warning.txt', $pushWarning."
+");
+        }
+
         // ---------- 2. Gradle files ----------
         self::replaceTokens($outDir.'/app/build.gradle', [
             '__PACKAGE__' => $c['package'],
