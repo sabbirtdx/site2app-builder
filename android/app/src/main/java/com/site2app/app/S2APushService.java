@@ -86,7 +86,7 @@ public class S2APushService extends FirebaseMessagingService {
         }
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
+                .setSmallIcon(R.drawable.ic_notif_fallback)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setAutoCancel(true)
