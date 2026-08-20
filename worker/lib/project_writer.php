@@ -93,10 +93,8 @@ class S2AIconGenerator
         }
 
         // Notification icon (small, centered)
-        // No notification PNG here: the app's notification small icon is
-        // ic_notif_fallback.xml (a white bell vector that always exists in
-        // the template). Extra PNGs with the same name caused duplicate
-        // resource errors in the past — never generate one again.
+        self::saveResized($source, $drawable.'/ic_stat_s2a.png', 96, 96);
+        $made[] = 'drawable/ic_stat_s2a.png';
 
         // Adaptive foreground: icon centered with safe-zone padding
         $fg = self::createCanvas(432, 432);
