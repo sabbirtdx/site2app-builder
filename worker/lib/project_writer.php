@@ -250,6 +250,37 @@ class S2AProjectWriter
             }
         }
 
+        // Java-level stale fixes (same problems the template endpoint
+        // sanitizes — kept here as defense-in-depth for every path).
+        $pushSvc = $outDir.'/app/src/main/java/com/site2app/app/S2APushService.java';
+        if (file_exists($pushSvc)) {
+            $svc = (string) file_get_contents($pushSvc);
+            if (str_contains($svc, 'bigLargeIcon')) {
+                $svc = preg_replace('/[\t ]*\.bigLargeIcon\([^)]*\)\s*/', '', $svc);
+                file_put_contents($pushSvc, $svc);
+            }
+        }
+        $webIface = $outDir.'/app/src/main/java/com/site2app/app/WebAppInterface.java';
+        if (file_exists($webIface)) {
+            $wif = (string) file_get_contents($webIface);
+            if (str_contains($wif, 'ic_stat_s2a') || str_contains($wif, 'ic_notification')) {
+                $wif = str_replace(['R.drawable.ic_stat_s2a', 'R.drawable.ic_notification'], 'R.drawable.ic_notif_fallback', $wif);
+                file_put_contents($webIface, $wif);
+            }
+        }
+        $bellPath = $outDir.'/app/src/main/res/drawable/ic_notif_fallback.xml';
+        if (! file_exists($bellPath)) {
+            @mkdir(dirname($bellPath), 0775, true);
+            file_put_contents($bellPath, '<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M12,22c1.1,0 2,-0.9 2,-2h-4c0,1.1 0.9,2 2,2zM18,16v-5c0,-3.07 -1.63,-5.64 -4.5,-6.32L13.5,4c0,-0.83 -0.67,-1.5 -1.5,-1.5s-1.5,0.67 -1.5,1.5v0.68C7.64,5.36 6,7.92 6,11v5l-2,2v1h16v-1l-2,-2z" />
+</vector>
+');
+        }
+
         $resDir = $outDir.'/app/src/main/res';
 
         // ---------- 1. Icons & splash ----------
