@@ -102,7 +102,6 @@ public class S2APushService extends FirebaseMessagingService {
             if (image != null) {
                 builder.setStyle(new NotificationCompat.BigPictureStyle()
                         .bigPicture(image)
-                        .bigLargeIcon(null)
                         .setSummaryText(body));
             }
         }
