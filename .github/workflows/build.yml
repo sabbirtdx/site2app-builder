@@ -91,6 +91,7 @@ jobs:
       - name: Build (assembleRelease / bundleRelease)
         run: |
           set -e
+          set -o pipefail
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           cd out/project
@@ -115,13 +116,40 @@ jobs:
           SHA=$(sha256sum "$ART" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$ART")
           echo "artifact: $ART ($SIZE bytes, sha256 $SHA)"
-          curl -fsSL --retry 5 --retry-delay 5 \
+          # Stage 1 — RAW upload: a lenient endpoint that only checks worker
+          # auth and stores the APK, no matter what the build status is.
+          # This is immune to status-sync races (409) and validation races.
+          RAW_URL=$(echo "${{ github.event.client_payload.callback_complete }}" | sed 's#/complete$#/upload-raw#')
+          RAW_CODE=$(curl -sSL -o /tmp/raw-response.log -w "%{http_code}" \
+            --retry 10 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 300 \
             -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
             -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
             -F "sha256=$SHA" \
             -F "size=$SIZE" \
             -F "artifact=@$ART" \
-            "${{ github.event.client_payload.callback_complete }}"
+            "$RAW_URL")
+          echo "raw upload HTTP status: $RAW_CODE"
+          echo "raw upload response: $(cat /tmp/raw-response.log)"
+          # Stage 2 — normal complete() to finalize the build on the platform
+          HTTP_CODE=$(curl -sSL -o /tmp/upload-response.log -w "%{http_code}" \
+            --retry 10 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 300 \
+            -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
+            -F "worker_job_id=${{ github.event.client_payload.job_token }}" \
+            -F "sha256=$SHA" \
+            -F "size=$SIZE" \
+            -F "artifact=@$ART" \
+            "${{ github.event.client_payload.callback_complete }}")
+          echo "platform HTTP status: $HTTP_CODE"
+          echo "platform response: $(cat /tmp/upload-response.log)"
+          RAW_FAIL=$([ "$RAW_CODE" -ge 400 ] || [ "$RAW_CODE" = "000" ] && echo 1 || echo 0)
+          COMPLETE_FAIL=$([ "$HTTP_CODE" -ge 400 ] && echo 1 || echo 0)
+          if [ "$RAW_FAIL" = "1" ] && [ "$COMPLETE_FAIL" = "1" ]; then
+            echo "PLATFORM REJECTED THE UPLOAD (raw=$RAW_CODE, complete=$HTTP_CODE): $(cat /tmp/raw-response.log) $(cat /tmp/upload-response.log)" | tee -a /tmp/build.log
+            exit 1
+          fi
+          echo "APK delivered (raw=$RAW_CODE, complete=$HTTP_CODE)" | tee -a /tmp/build.log
 
       - name: Report failure to Site2App
         if: failure()
