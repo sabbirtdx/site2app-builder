@@ -179,10 +179,11 @@ jobs:
       - name: Check for pending builds on Site2App
         run: |
           set -e
+          SITE="${{ vars.S2A_SITE || 'site2app.storx.top' }}"
           HTTP=$(curl -sS -o /tmp/job.json -w "%{http_code}" \
             --retry 3 --retry-all-errors --retry-delay 5 \
             --connect-timeout 30 --max-time 120 \
-            "https://winbdbet.skyhostr.my.id/api/worker/next-pending")
+            "https://${SITE}/api/worker/next-pending")
           if [ "$HTTP" = "204" ]; then
             echo "No pending builds - nothing to do."
             exit 0
