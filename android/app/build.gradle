@@ -66,4 +66,5 @@ dependencies {
     __ADS_DEPS__
     __FIREBASE_DEPS__
     __ONESIGNAL_DEPS__
+    __WEVLO_DEPS__
 }
