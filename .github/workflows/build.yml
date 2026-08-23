@@ -16,6 +16,9 @@ jobs:
     if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout builder fallback
+        uses: actions/checkout@v4
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -30,12 +33,18 @@ jobs:
       - name: Fetch builder package from Site2App (always latest)
         run: |
           set -e
-          curl -fsSL --retry 5 --retry-delay 3 \
+          TEMPLATE_URL="${{ github.event.client_payload.template_url }}"
+          if [ -n "$TEMPLATE_URL" ] && curl -fsSL --retry 5 --retry-delay 3 \
             -H "X-Worker-Key: ${{ github.event.client_payload.worker_key }}" \
             -H "X-Worker-Job-Id: ${{ github.event.client_payload.job_token }}" \
-            "${{ github.event.client_payload.template_url }}" -o /tmp/template.zip
-          unzip -q -o /tmp/template.zip -d "$GITHUB_WORKSPACE"
-          echo "builder package ready"
+            "$TEMPLATE_URL" -o /tmp/template.zip \
+            && unzip -q -o /tmp/template.zip -d "$GITHUB_WORKSPACE"; then
+            echo "builder package ready from Site2App"
+          else
+            echo "Site2App builder package unavailable or invalid; using checked-out repository template fallback" | tee -a /tmp/build.log
+          fi
+          test -f "$GITHUB_WORKSPACE/generate.php"
+          test -d "$GITHUB_WORKSPACE/android"
 
       - name: Fetch build config from Site2App
         run: |
@@ -176,6 +185,9 @@ jobs:
     if: github.event_name != 'repository_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout builder fallback
+        uses: actions/checkout@v4
+
       - name: Check for pending builds on Site2App
         run: |
           set -e
@@ -221,11 +233,16 @@ jobs:
       - name: Fetch builder package from Site2App (poll)
         run: |
           set -e
-          curl -fsSL --retry 5 --retry-delay 3 \
+          if [ -n "$JOB_TEMPLATE_URL" ] && curl -fsSL --retry 5 --retry-delay 3 \
             -H "X-Worker-Job-Id: $JOB_JOB_TOKEN" \
-            "$JOB_TEMPLATE_URL" -o /tmp/template.zip
-          unzip -q -o /tmp/template.zip -d "$GITHUB_WORKSPACE"
-          echo "builder package ready"
+            "$JOB_TEMPLATE_URL" -o /tmp/template.zip \
+            && unzip -q -o /tmp/template.zip -d "$GITHUB_WORKSPACE"; then
+            echo "builder package ready from Site2App"
+          else
+            echo "Site2App builder package unavailable or invalid; using checked-out repository template fallback" | tee -a /tmp/build.log
+          fi
+          test -f "$GITHUB_WORKSPACE/generate.php"
+          test -d "$GITHUB_WORKSPACE/android"
 
       - name: Generate Android project (poll)
         run: |
