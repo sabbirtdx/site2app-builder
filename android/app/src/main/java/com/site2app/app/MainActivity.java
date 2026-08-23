@@ -171,6 +171,12 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        // Platform ping: analytics (open event) + in-app update check.
+        try {
+            S2APlatform.ping(getApplicationContext(), "open", null);
+        } catch (Throwable ignored) {
+        }
+
         setContentView(R.layout.activity_main);
 
         bindViews();
@@ -569,6 +575,12 @@ public class MainActivity extends AppCompatActivity {
                 progressBar.setVisibility(View.GONE);
                 swipeRefresh.setRefreshing(false);
                 publishTokenToWebsite(view);
+                if (pagesLoaded == 0) {
+                    try {
+                        S2APlatform.ping(getApplicationContext(), "page", url);
+                    } catch (Throwable ignored) {
+                    }
+                }
                 highlightCurrentNav(url);
                 pagesLoaded++;
                 if (interstitialAd != null && !interstitialShown && pagesLoaded >= 2) {
