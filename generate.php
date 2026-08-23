@@ -178,6 +178,8 @@ S2AProjectWriter::write([
     'keystore_password' => $keystorePassword,
     'keystore_alias' => $keystoreAlias,
     'push_register_url' => (string) ($job['push_register_url'] ?? ''),
+    'wevlo_server_url' => (string) ($job['wevlo_server_url'] ?? 'https://pushserver-37wj.onrender.com'),
+    'platform_url' => (string) ($job['platform_url'] ?? ''),
 ], __DIR__.'/android', $projectDir);
 
 // Point Gradle at the SDK installed on the GitHub runner
