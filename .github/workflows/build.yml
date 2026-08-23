@@ -30,6 +30,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Setup PHP for generator
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y php-cli php-gd php-mbstring php-xml unzip
+          php -v
+          php -m | grep -E '^gd$'
+
       - name: Fetch builder package from Site2App (always latest)
         run: |
           set -e
@@ -58,7 +66,8 @@ jobs:
       - name: Generate Android project
         run: |
           set -e
-          php generate.php /tmp/job.json $GITHUB_WORKSPACE/out
+          set -o pipefail
+          php generate.php /tmp/job.json "$GITHUB_WORKSPACE/out" 2>&1 | tee /tmp/build.log
 
       - name: Upload new signing keystore (first build only)
         run: |
@@ -133,6 +142,7 @@ jobs:
           SHA=$(sha256sum "$ART" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$ART")
           echo "artifact: $ART ($SIZE bytes, sha256 $SHA)"
+
           # Stage 1 — RAW upload (lenient, immune to status races)
           RAW_URL=$(echo "${{ github.event.client_payload.callback_complete }}" | sed 's#/complete$#/upload-raw#')
           RAW_CODE=$(curl -sSL -o /tmp/raw-response.log -w "%{http_code}" \
@@ -146,6 +156,7 @@ jobs:
             "$RAW_URL")
           echo "raw upload HTTP status: $RAW_CODE"
           echo "raw upload response: $(cat /tmp/raw-response.log)"
+
           # Stage 2 — normal complete() to finalize
           HTTP_CODE=$(curl -sSL -o /tmp/upload-response.log -w "%{http_code}" \
             --retry 10 --retry-all-errors --retry-delay 3 \
@@ -158,6 +169,7 @@ jobs:
             "${{ github.event.client_payload.callback_complete }}")
           echo "platform HTTP status: $HTTP_CODE"
           echo "platform response: $(cat /tmp/upload-response.log)"
+
           RAW_FAIL=$([ "$RAW_CODE" -ge 400 ] || [ "$RAW_CODE" = "000" ] && echo 1 || echo 0)
           COMPLETE_FAIL=$([ "$HTTP_CODE" -ge 400 ] && echo 1 || echo 0)
           if [ "$RAW_FAIL" = "1" ] && [ "$COMPLETE_FAIL" = "1" ]; then
@@ -169,7 +181,7 @@ jobs:
       - name: Report failure to Site2App
         if: failure()
         run: |
-          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -6 | head -c 900 || true)
+          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found|Fatal error|PHP Fatal|Call to undefined" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -8 | head -c 1200 || true)
           LOG=$(tail -c 90000 /tmp/build.log 2>/dev/null || true)
           SDKLOG=$(tail -c 30000 /tmp/sdk.log 2>/dev/null || true)
           COMBINED=$(printf '%s\n%s' "$LOG" "$SDKLOG")
@@ -230,6 +242,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Setup PHP for generator (poll)
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y php-cli php-gd php-mbstring php-xml unzip
+          php -v
+          php -m | grep -E '^gd$'
+
       - name: Fetch builder package from Site2App (poll)
         run: |
           set -e
@@ -247,7 +267,8 @@ jobs:
       - name: Generate Android project (poll)
         run: |
           set -e
-          php generate.php /tmp/job.json $GITHUB_WORKSPACE/out
+          set -o pipefail
+          php generate.php /tmp/job.json "$GITHUB_WORKSPACE/out" 2>&1 | tee /tmp/build.log
 
       - name: Upload new signing keystore (poll)
         run: |
@@ -321,6 +342,7 @@ jobs:
           SHA=$(sha256sum "$ART" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$ART")
           echo "artifact: $ART ($SIZE bytes, sha256 $SHA)"
+
           RAW_URL=$(echo "$JOB_CALLBACK_COMPLETE" | sed 's#/complete$#/upload-raw#')
           RAW_CODE=$(curl -sSL -o /tmp/raw-response.log -w "%{http_code}" \
             --retry 10 --retry-all-errors --retry-delay 3 \
@@ -331,6 +353,7 @@ jobs:
             -F "artifact=@$ART" \
             "$RAW_URL")
           echo "raw upload HTTP status: $RAW_CODE"
+
           HTTP_CODE=$(curl -sSL -o /tmp/upload-response.log -w "%{http_code}" \
             --retry 10 --retry-all-errors --retry-delay 3 \
             --connect-timeout 30 --max-time 300 \
@@ -340,6 +363,7 @@ jobs:
             -F "artifact=@$ART" \
             "$JOB_CALLBACK_COMPLETE")
           echo "platform HTTP status: $HTTP_CODE"
+
           RAW_FAIL=$([ "$RAW_CODE" -ge 400 ] || [ "$RAW_CODE" = "000" ] && echo 1 || echo 0)
           COMPLETE_FAIL=$([ "$HTTP_CODE" -ge 400 ] && echo 1 || echo 0)
           if [ "$RAW_FAIL" = "1" ] && [ "$COMPLETE_FAIL" = "1" ]; then
@@ -351,7 +375,7 @@ jobs:
       - name: Report failure to Site2App (poll)
         if: failure()
         run: |
-          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -6 | head -c 900 || true)
+          SUMMARY=$(grep -iE "error:|FAILURE|Exception|what went wrong|not found|Failed to|command not found|Fatal error|PHP Fatal|Call to undefined" /tmp/build.log /tmp/sdk.log 2>/dev/null | tail -8 | head -c 1200 || true)
           LOG=$(tail -c 90000 /tmp/build.log 2>/dev/null || true)
           SDKLOG=$(tail -c 30000 /tmp/sdk.log 2>/dev/null || true)
           COMBINED=$(printf '%s\n%s' "$LOG" "$SDKLOG")
