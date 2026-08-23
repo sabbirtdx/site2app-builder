@@ -295,15 +295,16 @@ class S2AProjectWriter
         }
 
         // ---------- 1a. Push provider ----------
-        // 'firebase' (default), 'onesignal' (no Firebase), or 'site'
-        // (self-hosted polling — no third party at all).
+        // 'firebase' (default), 'wevlo' (Wevlo push server over FCM),
+        // 'onesignal' (no Firebase), or 'site' (self-hosted polling).
         $pushProvider = (string) ($c['settings']['push_provider'] ?? 'firebase');
-        if (! in_array($pushProvider, ['firebase', 'onesignal', 'site'], true)) {
+        if (! in_array($pushProvider, ['firebase', 'wevlo', 'onesignal', 'site'], true)) {
             $pushProvider = 'firebase';
         }
-        if ($pushProvider !== 'firebase') {
-            // Only Firebase uses google-services.json; other providers must
-            // never include the FCM service or its Gradle plugin.
+        if (! in_array($pushProvider, ['firebase', 'wevlo'], true)) {
+            // Only firebase/wevlo use google-services.json (FCM delivery
+            // channel); onesignal/site must never include the FCM service
+            // or its Gradle plugin.
             $c['fcm_json'] = null;
         }
 
@@ -351,15 +352,15 @@ class S2AProjectWriter
             '__PACKAGE__' => $c['package'],
             '__VERSION_NAME__' => $c['version_name'] ?? '1.0.0',
             '__VERSION_CODE__' => (string) ($c['version_code'] ?? 1),
-            '__GOOGLE_SERVICES__' => (! empty($c['push_enabled']) && ! empty($c['fcm_json']))
-                ? "id 'com.google.gms.google-services'"
-                : "// Google services plugin not applied (push notifications disabled)",
-            '__GOOGLE_SERVICES__' => ($pushProvider === 'firebase' && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
+            '__GOOGLE_SERVICES__' => (in_array($pushProvider, ['firebase', 'wevlo'], true) && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
                 ? "id 'com.google.gms.google-services'"
                 : "// Google services plugin not applied (push provider: {$pushProvider})",
-            '__FIREBASE_DEPS__' => ($pushProvider === 'firebase' && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
+            '__FIREBASE_DEPS__' => (in_array($pushProvider, ['firebase', 'wevlo'], true) && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
                 ? "    implementation platform('com.google.firebase:firebase-bom:33.1.2')\n    implementation 'com.google.firebase:firebase-messaging'"
                 : "// Firebase dependencies not applied (push provider: {$pushProvider})",
+            '__WEVLO_DEPS__' => ($pushProvider === 'wevlo' && ! empty($c['push_enabled']) && ! empty($c['fcm_json']))
+                ? "    implementation 'com.squareup.okhttp3:okhttp:4.12.0'"
+                : "// OkHttp not included (Wevlo provider off: {$pushProvider})",
         ]);
 
         $gradleProps = [
@@ -421,10 +422,11 @@ class S2AProjectWriter
         $manifest = file_get_contents($outDir.'/app/src/main/AndroidManifest.xml');
 
         $pushService = '';
-        if (! empty($c['push_enabled']) && ! empty($c['fcm_json'])) {
+        if (in_array($pushProvider, ['firebase', 'wevlo'], true) && ! empty($c['push_enabled']) && ! empty($c['fcm_json'])) {
+            $svcClass = $pushProvider === 'wevlo' ? 'WevloFcmService' : 'S2APushService';
             $pushService = '
         <service
-            android:name=".S2APushService"
+            android:name=".'.$svcClass.'"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -436,13 +438,35 @@ class S2AProjectWriter
         $manifest = str_replace('__PUSH_SERVICE__', $pushService, $manifest);
         file_put_contents($outDir.'/app/src/main/AndroidManifest.xml', $manifest);
 
-        // ---------- 4. Firebase / AdMob ----------
-        if ($pushProvider === 'firebase' && ! empty($c['push_enabled']) && ! empty($c['fcm_json'])) {
+        // ---------- 4. Firebase / Wevlo files ----------
+        $wevloOn = ($pushProvider === 'wevlo' && ! empty($c['push_enabled']) && ! empty($c['fcm_json']));
+        if (in_array($pushProvider, ['firebase', 'wevlo'], true) && ! empty($c['push_enabled']) && ! empty($c['fcm_json'])) {
             file_put_contents($outDir.'/app/google-services.json', $c['fcm_json']);
         } else {
             // Keep FCM classes out of the compilation when push is disabled
             // OR when the provider is onesignal/site.
             @unlink($outDir.'/app/src/main/java/com/site2app/app/S2APushService.java');
+        }
+
+        // S2APushService is the FIREBASE-provider service; Wevlo apps use
+        // WevloFcmService instead.
+        if ($pushProvider !== 'firebase') {
+            @unlink($outDir.'/app/src/main/java/com/site2app/app/S2APushService.java');
+        }
+
+        // The four Wevlo files ship ONLY in Wevlo builds.
+        if ($wevloOn) {
+            $wevloUrl = (string) ($c['wevlo_server_url'] ?? 'https://pushserver-37wj.onrender.com');
+            $wevloUrl = rtrim($wevloUrl, '/');
+            $pushCfgPath = $outDir.'/app/src/main/java/com/site2app/app/PushConfig.java';
+            $pushCfg = (string) file_get_contents($pushCfgPath);
+            $pushCfg = str_replace('__WEVLO_SERVER_URL__', $wevloUrl, $pushCfg);
+            $pushCfg = str_replace('__WEVLO_APP_ID__', (string) ($c['package'] ?? ''), $pushCfg);
+            file_put_contents($pushCfgPath, $pushCfg);
+        } else {
+            foreach (['PushConfig.java', 'WevloFcmService.java', 'TokenRegistrar.java', 'NotificationHelper.java'] as $wevloFile) {
+                @unlink($outDir.'/app/src/main/java/com/site2app/app/'.$wevloFile);
+            }
         }
 
         // ---------- 5. App configuration resource ----------
@@ -538,11 +562,14 @@ class S2AProjectWriter
 
         // Provider-driven runtime flags (push provider lives in settings).
         $provider = (string) ($settings['push_provider'] ?? 'firebase');
-        if (! in_array($provider, ['firebase', 'onesignal', 'site'], true)) {
+        if (! in_array($provider, ['firebase', 'wevlo', 'onesignal', 'site'], true)) {
             $provider = 'firebase';
         }
         $flags['push_site_enabled'] = ($provider === 'site' && ! empty($c['push_enabled'])) ? 'true' : 'false';
         $flags['push_onesignal_enabled'] = ($provider === 'onesignal' && ! empty($c['push_enabled'])) ? 'true' : 'false';
+        $flags['push_wevlo_enabled'] = ($provider === 'wevlo' && ! empty($c['push_enabled'])) ? 'true' : 'false';
+        $flags['platform_url'] = (string) ($c['platform_url'] ?? '');
+        $flags['version_code'] = (string) ($c['version_code'] ?? '1');
 
         $xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n";
         // app id (for the self-hosted polling endpoint)
@@ -607,6 +634,9 @@ class S2AProjectWriter
             '@string/s2a_push_register_url',
             '@string/s2a_push_site_enabled',
             '@string/s2a_push_onesignal_enabled',
+            '@string/s2a_push_wevlo_enabled',
+            '@string/s2a_platform_url',
+            '@string/s2a_version_code',
             '@integer/s2a_app_id',
             '@string/s2a_onesignal_app_id',
             '@string/app_name',
